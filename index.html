@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Мама, я хочу писать!</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: #f7f0e1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            touch-action: pan-y;
+        }
+        #gameWrapper {
+            width: 100%;
+            max-width: 500px;
+            aspect-ratio: 9 / 16;
+            background: #b7d7e8;
+            border-radius: 32px 32px 24px 24px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+            position: relative;
+            overflow: hidden;
+            touch-action: none;
+            border: 4px solid #f0dbb0;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            background: #b7d7e8;
+            touch-action: none;
+            cursor: grab;
+        }
+        #ui {
+            position: absolute;
+            bottom: 12px;
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            padding: 0 12px;
+            pointer-events: none;
+        }
+        #ui button {
+            pointer-events: auto;
+            background: #fecb6e;
+            border: none;
+            border-radius: 60px;
+            padding: 12px 24px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #3d2b1a;
+            box-shadow: 0 6px 0 #b87c3a, 0 8px 16px rgba(0,0,0,0.2);
+            transition: 0.07s ease;
+            touch-action: manipulation;
+            border: 2px solid #ffdea8;
+            letter-spacing: 0.5px;
+            flex: 1;
+            max-width: 180px;
+        }
+        #ui button:active {
+            transform: translateY(6px);
+            box-shadow: 0 2px 0 #b87c3a;
+        }
+        #messageBox {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            right: 12px;
+            background: rgba(255, 241, 210, 0.92);
+            padding: 12px 12px 10px 12px;
+            border-radius: 40px;
+            text-align: center;
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #2e1f0e;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            backdrop-filter: blur(2px);
+            border: 2px solid #fae1b0;
+            pointer-events: none;
+            min-height: 3.2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1.3;
+        }
+        #messageBox span {
+            background: #ffd966;
+            padding: 0 12px;
+            border-radius: 30px;
+            margin: 0 4px;
+        }
+        @media (max-width: 480px) {
+            #gameWrapper {
+                border-radius: 20px;
+                max-width: 100vw;
+                aspect-ratio: 9 / 16;
+                border-width: 3px;
+            }
+            #ui button {
+                font-size: 1rem;
+                padding: 10px 14px;
+            }
+            #messageBox {
+                font-size: 0.95rem;
+                padding: 8px 10px;
+                top: 8px;
+                left: 8px;
+                right: 8px;
+                min-height: 2.8rem;
+            }
+        }
+        @media (max-height: 700px) {
+            #messageBox {
+                font-size: 0.8rem;
+                padding: 4px 10px;
+                min-height: 2.2rem;
+                top: 6px;
+            }
+            #ui button {
+                padding: 6px 12px;
+                font-size: 0.8rem;
+            }
+        }
+    </style>
+</head>
+<body>
+<div id="gameWrapper">
+    <canvas id="gameCanvas" width="360" height="640"></canvas>
+    <div id="messageBox">🏠 Собери одежду и детей!</div>
+    <div id="ui">
+        <button id="resetBtn">🔄 Сначала</button>
+    </div>
+</div>
+<script>
+    (function(){
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const messageEl = document.getElementById('messageBox');
+
+        // ------ размеры и адаптация ------
+        const W = 360, H = 640;
+        canvas.width = W; canvas.height = H;
+
+        // ------ игровые объекты ------
+        // мама
+        let mom = { x: 160, y: 480, r: 24, color: '#4a7db5' };
+
+        // дети (неподвижны, ждут)
+        const child1 = { x: 70, y: 140, r: 20, color: '#e68a5f', name: 'Аня' };
+        const child2 = { x: 270, y: 190, r: 20, color: '#5f9e7a', name: 'Петя' };
+
+        // одежда (6 предметов)
+        let clothes = [
+            { x: 40, y: 360, r: 14, collected: false, type: 'шапка' },
+            { x: 300, y: 380, r: 14, collected: false, type: 'шарф' },
+            { x: 180, y: 310, r: 14, collected: false, type: 'куртка' },
+            { x: 80, y: 540, r: 14, collected: false, type: 'штаны' },
+            { x: 250, y: 550, r: 14, collected: false, type: 'ботинки' },
+            { x: 140, y: 220, r: 14, collected: false, type: 'носки' }
+        ];
+
+        // состояние игры
+        let allCollected = false;
+        let gameFinished = false;      // финал "мама я хочу писать"
+        let winFlag = false;          // нормальный выход (если дети одеты)
+        let child1Ready = false;
+        let child2Ready = false;
+
+        // для перетаскивания (touch / mouse)
+        let isDragging = false;
+        let dragOffsetX = 0, dragOffsetY = 0;
+        let activeClothIndex = -1;      // индекс одежды, которую тащим
+
+        // ------ сброс / рестарт ------
+        function resetGame() {
+            // сброс позиций мамы и одежды
+            mom.x = 160; mom.y = 480;
+            clothes.forEach(c => c.collected = false);
+            // случайно разбросаем одежду по дому (но не слишком близко к детям)
+            const positions = [
+                [40,360],[300,380],[180,310],[80,540],[250,550],[140,220]
+            ];
+            // перемешаем, чтобы было веселее
+            for (let i = positions.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [positions[i], positions[j]] = [positions[j], positions[i]];
+            }
+            clothes.forEach((c, idx) => {
+                c.x = positions[idx][0];
+                c.y = positions[idx][1];
+                c.collected = false;
+            });
+            // сброс флагов
+            allCollected = false;
+            gameFinished = false;
+            winFlag = false;
+            child1Ready = false;
+            child2Ready = false;
+            isDragging = false;
+            activeClothIndex = -1;
+            messageEl.innerHTML = '🧥 Собери всю одежду!';
+            // мама появляется на месте
+        }
+
+        // ------ проверка, собрана ли вся одежда ------
+        function checkAllCollected() {
+            return clothes.every(c => c.collected === true);
+        }
+
+        // ------ обновление логики (вызывается после каждого сбора) ------
+        function updateGameState() {
+            // если уже финал — ничего не делаем
+            if (gameFinished) return;
+
+            const allCollectedNow = checkAllCollected();
+            if (allCollectedNow && !allCollected) {
+                allCollected = true;
+                // одежда вся собрана, теперь дети готовы?
+                child1Ready = true;
+                child2Ready = true;
+                messageEl.innerHTML = '🎉 Всё собрано! Мама ведёт детей гулять...';
+                // показываем победный экран через 1.5 сек, но с сюрпризом
+                setTimeout(() => {
+                    if (!gameFinished) {
+                        // сюрприз: ребёнок говорит "мама я хочу писать"
+                        gameFinished = true;
+                        winFlag = false; // это не победа, а забавный финал
+                        messageEl.innerHTML = '👧 "Мама, я хочу писать!" 😂';
+                        // немного драмы: дети разбегаются (шутка)
+                        child1.x = 40; child1.y = 580;
+                        child2.x = 300; child2.y = 580;
+                        // мама в шоке
+                        mom.x = 160; mom.y = 400;
+                    }
+                }, 1400);
+            } else if (!allCollectedNow) {
+                allCollected = false;
+                // если игра ещё не завершена, показываем прогресс
+                if (!gameFinished) {
+                    const left = clothes.filter(c => !c.collected).length;
+                    messageEl.innerHTML = `🧦 Осталось собрать: ${left} вещей`;
+                }
+            }
+        }
+
+        // ------ отрисовка ------
+        function draw() {
+            ctx.clearRect(0, 0, W, H);
+
+            // пол (ковёр)
+            ctx.fillStyle = '#aac9d9';
+            ctx.fillRect(0, 480, W, 160);
+            ctx.fillStyle = '#8fb4c7';
+            for (let i=0; i<12; i++) {
+                ctx.beginPath();
+                ctx.arc(20 + i*30, 520, 10, 0, Math.PI*2);
+                ctx.fillStyle = (i%2===0) ? '#b8d4e0' : '#9fc0d0';
+                ctx.fill();
+            }
+
+            // стены (обои)
+            ctx.fillStyle = '#f2e3c9';
+            ctx.fillRect(0, 0, W, 480);
+            // окно
+            ctx.fillStyle = '#b0d0e8';
+            ctx.fillRect(40, 40, 70, 70);
+            ctx.fillStyle = '#e5f0fa';
+            ctx.fillRect(50, 50, 50, 50);
+            ctx.fillStyle = '#b0d0e8';
+            ctx.fillRect(250, 40, 70, 70);
+            ctx.fillStyle = '#e5f0fa';
+            ctx.fillRect(260, 50, 50, 50);
+
+            // рисуем детей (если не в финале "хочу писать" или они на месте)
+            if (!gameFinished || (gameFinished && winFlag)) {
+                // дети стоят
+                drawChild(child1);
+                drawChild(child2);
+            } else if (gameFinished && !winFlag) {
+                // дети "убежали" вниз (шутка)
+                drawChild(child1);
+                drawChild(child2);
+            }
+
+            // рисуем одежду (не собранную)
+            clothes.forEach(c => {
+                if (!c.collected) {
+                    ctx.shadowColor = '#3d2b1a';
+                    ctx.shadowBlur = 8;
+                    ctx.beginPath();
+                    ctx.arc(c.x, c.y, c.r, 0, Math.PI*2);
+                    ctx.fillStyle = '#e8b86a';
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                    ctx.fillStyle = '#7a5d3c';
+                    ctx.font = 'bold 12px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('👕', c.x-1, c.y-1);
+                }
+            });
+
+            // рисуем маму
+            ctx.shadowColor = '#2d1f0e';
+            ctx.shadowBlur = 12;
+            ctx.beginPath();
+            ctx.arc(mom.x, mom.y, mom.r, 0, Math.PI*2);
+            ctx.fillStyle = mom.color;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#f5e3c4';
+            ctx.font = '28px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('👩', mom.x-1, mom.y-3);
+
+            // если игра завершена шуткой, рисуем облачко
+            if (gameFinished && !winFlag) {
+                ctx.font = '24px sans-serif';
+                ctx.fillStyle = '#2e1f0e';
+                ctx.fillText('😱', mom.x+30, mom.y-30);
+            }
+
+            // если победа (но мы её не используем, только шутка)
+            if (winFlag) {
+                ctx.fillStyle = '#f7e9b0';
+                ctx.fillRect(80, 240, 200, 60);
+                ctx.fillStyle = '#3d2b1a';
+                ctx.font = 'bold 20px sans-serif';
+                ctx.fillText('🎉 ПОБЕДА! 🎉', 180, 270);
+            }
+        }
+
+        function drawChild(child) {
+            ctx.shadowColor = '#1f1509';
+            ctx.shadowBlur = 8;
+            ctx.beginPath();
+            ctx.arc(child.x, child.y, child.r, 0, Math.PI*2);
+            ctx.fillStyle = child.color;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#fef3d6';
+            ctx.font = '22px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('🧒', child.x-1, child.y-1);
+            // имя
+            ctx.fillStyle = '#1f2a1a';
+            ctx.font = 'bold 10px sans-serif';
+            ctx.fillText(child.name, child.x, child.y - child.r - 10);
+        }
+
+        // ------ обработка ввода (мышь / тач) ------
+        function handleStart(e) {
+            e.preventDefault();
+            if (gameFinished) return;
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = W / rect.width;
+            const scaleY = H / rect.height;
+
+            let clientX, clientY;
+            if (e.touches) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            } else {
+                clientX = e.clientX;
+                clientY = e.clientY;
+            }
+
+            const canvasX = (clientX - rect.left) * scaleX;
+            const canvasY = (clientY - rect.top) * scaleY;
+
+            // проверим, попали ли по одежде (не собранной)
+            for (let i = 0; i < clothes.length; i++) {
+                const c = clothes[i];
+                if (c.collected) continue;
+                const dx = canvasX - c.x;
+                const dy = canvasY - c.y;
+                if (dx*dx + dy*dy < (c.r+12)*(c.r+12)) {
+                    isDragging = true;
+                    activeClothIndex = i;
+                    dragOffsetX = canvasX - c.x;
+                    dragOffsetY = canvasY - c.y;
+                    // подсветим
+                    break;
+                }
+            }
+        }
+
+        function handleMove(e) {
+            e.preventDefault();
+            if (!isDragging || activeClothIndex === -1 || gameFinished) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = W / rect.width;
+            const scaleY = H / rect.height;
+
+            let clientX, clientY;
+            if (e.touches) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            } else {
+                clientX = e.clientX;
+                clientY = e.clientY;
+            }
+
+            let canvasX = (clientX - rect.left) * scaleX;
+            let canvasY = (clientY - rect.top) * scaleY;
+
+            // ограничим, чтобы не выходило за края
+            canvasX = Math.min(W-10, Math.max(10, canvasX));
+            canvasY = Math.min(H-10, Math.max(10, canvasY));
+
+            const cloth = clothes[activeClothIndex];
+            cloth.x = canvasX - dragOffsetX;
+            cloth.y = canvasY - dragOffsetY;
+            // мама следует за одеждой (но с задержкой)
+            mom.x += (cloth.x - mom.x) * 0.3;
+            mom.y += (cloth.y - mom.y) * 0.3;
+        }
+
+        function handleEnd(e) {
+            e.preventDefault();
+            if (!isDragging || activeClothIndex === -1 || gameFinished) {
+                isDragging = false;
+                activeClothIndex = -1;
+                return;
+            }
+
+            const cloth = clothes[activeClothIndex];
+            // проверим, не рядом ли с ребенком (сбор одежды)
+            const children = [child1, child2];
+            let collected = false;
+            for (let child of children) {
+                const dx = cloth.x - child.x;
+                const dy = cloth.y - child.y;
+                if (dx*dx + dy*dy < (cloth.r + child.r + 8) * (cloth.r + child.r + 8)) {
+                    // одежда собрана!
+                    cloth.collected = true;
+                    collected = true;
+                    // мама радуется
+                    break;
+                }
+            }
+
+            // если одежда не собрана, вернём на случайную позицию, но в пределах комнаты
+            if (!collected && !cloth.collected) {
+                // отбросим в случайное место (чтобы не застревала)
+                cloth.x = 30 + Math.random() * 300;
+                cloth.y = 200 + Math.random() * 280;
+            }
+
+            isDragging = false;
+            activeClothIndex = -1;
+
+            // после окончания перетаскивания обновим состояние
+            updateGameState();
+            draw();
+        }
+
+        // навешиваем события
+        canvas.addEventListener('mousedown', handleStart);
+        window.addEventListener('mousemove', handleMove);
+        window.addEventListener('mouseup', handleEnd);
+
+        canvas.addEventListener('touchstart', handleStart, { passive: false });
+        window.addEventListener('touchmove', handleMove, { passive: false });
+        window.addEventListener('touchend', handleEnd, { passive: false });
+
+        // кнопка сброса
+        document.getElementById('resetBtn').addEventListener('click', (e) => {
+            e.preventDefault();
+            resetGame();
+            draw();
+            // сбросим таймеры, если есть
+        });
+
+        // инициализация
+        resetGame();
+        draw();
+
+        // дополнительный запуск draw после возможных изменений
+        setInterval(() => {
+            // если что-то пошло не так, перерисуем
+            draw();
+        }, 200);
+    })();
+</script>
+</body>
+</html>
